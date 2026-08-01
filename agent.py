@@ -1,0 +1,538 @@
+import json
+import os
+from dotenv import load_dotenv
+from groq import Groq
+import github_mcp
+import onion_crawler_tool
+
+# 1. Load environment variables
+load_dotenv()
+
+# Initialize Groq client
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# 2. Define Tool Schemas for Groq Function Calling
+TOOLS_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_user_profile",
+            "description": "Fetch public GitHub profile details of a user (name, bio, location, repos count, followers).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "description": "The exact GitHub username to look up"
+                    }
+                },
+                "required": ["username"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_user_repositories",
+            "description": "Fetch a list of public GitHub repositories for a specified user.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "description": "The exact GitHub username to fetch repositories for"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of repositories to fetch (default is 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["username"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_repositories",
+            "description": "Search GitHub repositories by topic, query, or language.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (e.g. 'fastmcp' or 'e-commerce python')"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "summarize_repo_readme",
+            "description": "Fetch and summarize the README file of a specific GitHub repository.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "owner": {
+                        "type": "string",
+                        "description": "GitHub repository owner"
+                    },
+                    "repo": {
+                        "type": "string",
+                        "description": "Repository name"
+                    }
+                },
+                "required": ["owner", "repo"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_upcoming_calendar_events",
+            "description": "Fetch upcoming events from the user's Google Calendar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Number of upcoming events to fetch (default: 5)",
+                        "default": 5
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_calendar_event",
+            "description": "Schedule/create a new event or meeting on the user's Google Calendar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "Title or topic of the calendar event"
+                    },
+                    "start_time": {
+                        "type": "string",
+                        "description": "Start time in ISO format (e.g. '2026-08-02T10:00:00+05:30')"
+                    },
+                    "end_time": {
+                        "type": "string",
+                        "description": "End time in ISO format (e.g. '2026-08-02T11:00:00+05:30')"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Optional details or notes for the meeting/event"
+                    }
+                },
+                "required": ["summary", "start_time", "end_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_calendar_event",
+            "description": "Delete or remove an event from the user's Google Calendar by title/summary.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_summary": {
+                        "type": "string",
+                        "description": "The title or summary keyword of the event to delete (e.g. 'New Event')"
+                    }
+                },
+                "required": ["event_summary"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_web",
+            "description": "Search the live web for recent news, articles, tutorials, or general knowledge using DuckDuckGo.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query string"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max results to return (default 5)",
+                        "default": 5
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "scrape_url",
+            "description": "Scrape and extract readable text content from any webpage URL.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Full HTTP or HTTPS URL of the webpage to scrape"
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crawl_onion",
+            "description": "Crawl and extract readable text content from a .onion (dark web) URL via the Tor proxy running in Docker. Use this for .onion addresses only.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Full .onion URL (e.g. 'http://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion')"
+                    }
+                },
+                "required": ["url"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_content",
+            "description": "Analyze any text content using AI. Use after scraping a webpage or crawling an onion site to summarize, assess risks, extract links, or pull key information.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The raw text content to analyze"
+                    },
+                    "analysis_type": {
+                        "type": "string",
+                        "description": "Type of analysis: 'summarize' | 'risk_assessment' | 'extract_links' | 'key_info'",
+                        "enum": ["summarize", "risk_assessment", "extract_links", "key_info"],
+                        "default": "summarize"
+                    }
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_onion_urls",
+            "description": "Search for .onion (dark web) URLs related to a topic using Ahmia.fi and DuckDuckGo. Use this when the user wants to discover or find onion sites on a specific topic.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Topic to search for (e.g. 'privacy tools', 'news sites', 'search engines')"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum number of .onion URLs to return (default: 10)",
+                        "default": 10
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    }
+]
+
+# 3. Map tool names to Python implementations
+import google_calendar_tool
+import web_search_tool
+
+AVAILABLE_FUNCTIONS = {
+    "get_user_profile": github_mcp.get_user_profile,
+    "get_user_repositories": github_mcp.get_user_repositories,
+    "search_repositories": github_mcp.search_repositories,
+    "summarize_repo_readme": github_mcp.summarize_repo_readme,
+    "list_upcoming_calendar_events": google_calendar_tool.list_upcoming_calendar_events,
+    "create_calendar_event": google_calendar_tool.create_calendar_event,
+    "delete_calendar_event": google_calendar_tool.delete_calendar_event,
+    "search_web": web_search_tool.search_web,
+    "scrape_url": web_search_tool.scrape_url,
+    "crawl_onion": onion_crawler_tool.crawl_onion,
+    "analyze_content": onion_crawler_tool.analyze_content,
+    "find_onion_urls": onion_crawler_tool.find_onion_urls,
+}
+
+
+
+class Colors:
+    CYAN = "\033[1;36m"
+    GREEN = "\033[1;32m"
+    YELLOW = "\033[1;33m"
+    MAGENTA = "\033[1;35m"
+    BLUE = "\033[1;34m"
+    DIM = "\033[2m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+
+
+class AutonomousAgent:
+    """
+    An Autonomous ReAct (Reason + Act) Agent powered by Groq Llama 3.3.
+    It maintains conversation history across chat turns, remembers user details,
+    and dynamically calls tools (GitHub, Google Calendar & Web Search/Scraping) when needed.
+    """
+    def __init__(self, model: str = "llama-3.3-70b-versatile"):
+        self.model = model
+        self._build_system_prompt()
+        self.messages = [{"role": "system", "content": self.system_prompt}]
+
+    def _build_system_prompt(self):
+        """Build system prompt with the current date/time injected."""
+        from datetime import datetime
+        now = datetime.now()
+        current_dt = now.strftime("%A, %d %B %Y, %I:%M %p IST")
+        current_iso = now.strftime("%Y-%m-%dT%H:%M:%S+05:30")
+        tomorrow = (now.replace(hour=0, minute=0, second=0) 
+                    .__class__(now.year, now.month, now.day) 
+                    .__add__(__import__('datetime').timedelta(days=1)))
+        tomorrow_iso_start = tomorrow.strftime("%Y-%m-%dT09:00:00+05:30")
+        tomorrow_iso_end   = tomorrow.strftime("%Y-%m-%dT10:00:00+05:30")
+
+        self.system_prompt = f"""
+You are an Autonomous AI Assistant with tools for GitHub, Google Calendar, Web Search, and Tor/Onion crawling.
+
+TODAY'S DATE & TIME: {current_dt}
+CURRENT ISO TIMESTAMP: {current_iso}
+TOMORROW DATE (for reference): {tomorrow_iso_start} to {tomorrow_iso_end}
+
+ALWAYS use the correct current year ({now.year}) when creating calendar events. Never use past years.
+
+CRITICAL RULES — follow these strictly:
+1. For greetings (hi, hello, hey) or casual chat — respond conversationally. DO NOT call any tools.
+2. NEVER call a tool with placeholder values like 'null', 'example', 'test', 'N/A', or made-up usernames.
+3. ONLY call a tool when the user has given you real required information.
+4. If the user asks to "list", "show", or "what are your tools" — describe them in plain text. Do NOT call any tool.
+5. If required information is missing, ask the user for it before calling any tool.
+6. After a tool returns a result, give the user a FINAL TEXT ANSWER. Do NOT call the same tool again.
+7. Each tool should only be called ONCE per user request unless the user explicitly asks for more.
+
+Available tools:
+
+GITHUB TOOLS:
+- get_user_profile(username)          → GitHub profile info
+- get_user_repositories(username)     → List user repos
+- search_repositories(query)          → Search GitHub repos
+- summarize_repo_readme(owner, repo)  → Summarize a repo README with AI
+- analyze_user_repositories(username) → AI analysis of all user repos
+- ask_groq_ai(prompt)                 → Ask Groq AI a general question
+
+CALENDAR TOOLS:
+- list_upcoming_calendar_events()     → Show upcoming Google Calendar events
+- create_calendar_event(...)          → Create a new calendar event
+- delete_calendar_event(summary)      → Delete a calendar event by title
+
+WEB TOOLS:
+- search_web(query)                   → DuckDuckGo web search
+- scrape_url(url)                     → Scrape text from any clearnet URL
+
+ONION / TOR TOOLS (requires: docker compose up -d):
+- find_onion_urls(query)              → Find .onion URLs by topic
+- crawl_onion(url)                    → Crawl a .onion site via Tor
+- analyze_content(content, type)      → AI analysis: summarize/risk/links/key_info
+"""
+
+
+    def reset_memory(self):
+        """Reset conversation memory and refresh the date in system prompt."""
+        self._build_system_prompt()
+        self.messages = [{"role": "system", "content": self.system_prompt}]
+        print(f"{Colors.YELLOW}[Memory] Conversation memory cleared.{Colors.RESET}")
+
+    def run(self, user_prompt: str, max_turns: int = 5) -> str:
+        # Refresh date in system prompt on every new user message
+        self._build_system_prompt()
+        self.messages[0] = {"role": "system", "content": self.system_prompt}
+
+        # Append user prompt to ongoing conversation memory
+        self.messages.append({"role": "user", "content": user_prompt})
+
+        # Trim memory if it gets too long (keep system prompt + last 12 messages)
+        if len(self.messages) > 14:
+            self.messages = [self.messages[0]] + self.messages[-12:]
+
+        turn = 0
+        last_tool_signature = None   # tracks last tool call for loop detection
+        last_tool_output = ""        # tracks last tool result
+        fallback_models = [self.model, "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
+        
+        while turn < max_turns:
+            turn += 1
+            
+            response = None
+            for model_candidate in fallback_models:
+                try:
+                    response = groq_client.chat.completions.create(
+                        model=model_candidate,
+                        messages=self.messages,
+                        tools=TOOLS_SCHEMAS,
+                        tool_choice="auto",
+                        temperature=0.2
+                    )
+                    break
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "rate_limit" in err_str or "429" in err_str or "rate limit" in err_str:
+                        print(f"{Colors.YELLOW}[Warning] Model '{model_candidate}' rate limited. Trying fallback model...{Colors.RESET}")
+                        continue
+                    else:
+                        print(f"[Error] Groq API Error ({model_candidate}): {str(e)}")
+                        return f"API Error: {str(e)}"
+
+            if not response:
+                print("[Error] All Groq models rate limited. Please wait a few minutes before trying again.")
+                return "All models are currently rate limited. Please try again in a few minutes."
+
+            response_message = response.choices[0].message
+            tool_calls = response_message.tool_calls
+
+            # Append the assistant's response/thought message to conversation memory
+            self.messages.append(response_message)
+
+            # If the LLM did not request any tool calls, it has reached its final answer!
+            if not tool_calls:
+                print(f"\n{Colors.GREEN}{response_message.content}{Colors.RESET}")
+                return response_message.content
+
+
+            # If the LLM requested tool calls, execute each tool function
+            for tool_call in tool_calls:
+                function_name = tool_call.function.name
+                raw_args = tool_call.function.arguments
+                function_args = json.loads(raw_args) if raw_args else {}
+                if function_args is None:
+                    function_args = {}
+
+                # ── Loop detection ────────────────────────────────────────
+                current_signature = (function_name, str(function_args))
+                if current_signature == last_tool_signature:
+                    msg = (
+                        f"I already checked {function_name.replace('_', ' ')} "
+                        f"and the result was: {str(last_tool_output)}"
+                    )
+                    print(f"{Colors.YELLOW}[Loop Detected] Stopping repeated tool call.{Colors.RESET}")
+                    print(f"\n{Colors.GREEN}{msg}{Colors.RESET}")
+                    return msg
+                last_tool_signature = current_signature
+                # ─────────────────────────────────────────────────────────
+
+                print(f"{Colors.YELLOW}[Executing Tool]: Calling [{function_name}] with args: {function_args}{Colors.RESET}")
+
+                # Execute Python function
+                function_to_call = AVAILABLE_FUNCTIONS.get(function_name)
+                if function_to_call:
+                    last_tool_output = function_to_call(**function_args)
+                else:
+                    last_tool_output = f"Error: Tool '{function_name}' not found."
+
+                print(f"{Colors.DIM}[Tool Output Received] ({len(str(last_tool_output))} chars){Colors.RESET}\n")
+
+                # Send tool execution result back to conversation memory
+                self.messages.append({
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": function_name,
+                    "content": str(last_tool_output)
+                })
+
+        return "Agent reached maximum execution steps without concluding."
+
+
+HELP_TEXT = f"""
+{Colors.CYAN}{'='*60}
+  Custom AI Agent — Available Commands & Tools
+{'='*60}{Colors.RESET}
+
+{Colors.BOLD}Built-in Commands:{Colors.RESET}
+  help          → Show this help menu
+  reset         → Clear conversation memory
+  exit / quit   → Exit the agent
+
+{Colors.BOLD}🐙 GitHub Tools:{Colors.RESET}
+  "Get GitHub profile of torvalds"
+  "Show repositories of <username>"
+  "Search GitHub repos for fastmcp"
+  "Summarize README of owner/repo"
+  "Analyze all repos of <username>"
+
+{Colors.BOLD}📅 Calendar Tools:{Colors.RESET}
+  "Show my upcoming calendar events"
+  "Create a meeting called X on <date> at <time>"
+  "Delete calendar event called X"
+
+{Colors.BOLD}🌐 Web Tools:{Colors.RESET}
+  "Search the web for <topic>"
+  "Scrape and summarize <URL>"
+
+{Colors.BOLD}🧅 Onion / Tor Tools:{Colors.RESET}  {Colors.DIM}(requires: docker compose up -d){Colors.RESET}
+  "Find onion sites about news"
+  "Find onion URLs about privacy"
+  "Crawl <.onion URL> and summarize it"
+  "Crawl <.onion URL> and do a risk assessment"
+  "Find onion sites and crawl the first result"
+
+{Colors.BOLD}🤖 AI Tools:{Colors.RESET}
+  "Ask AI: <any question>"
+  "Analyze this content: <text>"
+{Colors.CYAN}{'='*60}{Colors.RESET}
+"""
+
+if __name__ == "__main__":
+    agent = AutonomousAgent()
+
+    print(f"{Colors.CYAN}")
+    print("  ╔══════════════════════════════════════════╗")
+    print("  ║    Custom AI Agent — MCP Powered  🚀    ║")
+    print("  ║  GitHub · Calendar · Web · Onion Tools  ║")
+    print("  ╚══════════════════════════════════════════╝")
+    print(f"{Colors.RESET}")
+    print(f"  {Colors.DIM}Type 'help' to see all tools, 'exit' to quit{Colors.RESET}\n")
+
+    while True:
+        try:
+            prompt = input(f"{Colors.BLUE}Enter prompt > {Colors.RESET}").strip()
+
+            if not prompt:
+                continue
+            if prompt.lower() in ["exit", "quit"]:
+                print(f"{Colors.YELLOW}Goodbye!{Colors.RESET}")
+                break
+            if prompt.lower() == "reset":
+                agent.reset_memory()
+                continue
+            if prompt.lower() in ["help", "?", "tools", "functions"]:
+                print(HELP_TEXT)
+                continue
+
+            agent.run(prompt)
+
+        except KeyboardInterrupt:
+            print(f"\n{Colors.YELLOW}Interrupted. Type 'exit' to quit.{Colors.RESET}")
+            continue

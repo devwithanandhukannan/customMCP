@@ -1,0 +1,360 @@
+import os
+import requests
+from dotenv import load_dotenv
+from fastmcp import FastMCP
+from groq import Groq
+
+# Load environment variables
+load_dotenv()
+
+# Initialize Groq client
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Unified MCP Server — All 12 Tools in One Place
+#   • GitHub        → profile, repos, search, README summary, AI repo analysis
+#   • Google Cal    → list, create, delete events
+#   • Web           → DuckDuckGo search, URL scraper
+#   • Tor / Onion   → find .onion URLs, crawl onion sites, AI content analysis
+# ─────────────────────────────────────────────────────────────────────────────
+mcp = FastMCP(
+    "Custom AI Agent MCP Server — GitHub · Calendar · Web · Onion"
+)
+
+
+def get_headers():
+    """Helper: GitHub API authentication headers."""
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"token {token}"
+    return headers
+
+
+# =============================================================================
+# GITHUB TOOLS
+# =============================================================================
+
+@mcp.tool()
+def get_user_profile(username: str) -> str:
+    """
+    Fetch public profile details of a GitHub user.
+
+    Args:
+        username: The GitHub username (e.g. 'torvalds')
+    """
+    url = f"https://api.github.com/users/{username}"
+    response = requests.get(url, headers=get_headers())
+
+    if response.status_code == 404:
+        return f"User '{username}' not found."
+    elif response.status_code != 200:
+        return f"Error: Received status code {response.status_code}"
+
+    data = response.json()
+    return (
+        f"GitHub User: {data.get('login')}\n"
+        f"- Name: {data.get('name', 'N/A')}\n"
+        f"- Bio: {data.get('bio', 'N/A')}\n"
+        f"- Location: {data.get('location', 'N/A')}\n"
+        f"- Public Repositories: {data.get('public_repos', 0)}\n"
+        f"- Followers: {data.get('followers', 0)}\n"
+        f"- Profile Link: {data.get('html_url')}"
+    )
+
+
+@mcp.tool()
+def get_user_repositories(username: str, limit: int = 5) -> str:
+    """
+    Get recent public repositories for a GitHub user.
+
+    Args:
+        username: The GitHub username
+        limit: Number of repositories to fetch (default: 5)
+    """
+    url = f"https://api.github.com/users/{username}/repos?sort=updated&per_page={limit}"
+    response = requests.get(url, headers=get_headers())
+
+    if response.status_code != 200:
+        return f"Error: Received status code {response.status_code}"
+
+    repos = response.json()
+    if not repos:
+        return f"No public repositories found for '{username}'."
+
+    output = [f"Top Repositories for {username}:"]
+    for repo in repos:
+        output.append(
+            f"\n- {repo['name']} (Stars: {repo['stargazers_count']})\n"
+            f"  Description: {repo.get('description') or 'No description'}\n"
+            f"  Language: {repo.get('language') or 'N/A'}\n"
+            f"  URL: {repo['html_url']}"
+        )
+    return "\n".join(output)
+
+
+@mcp.tool()
+def search_repositories(query: str, limit: int = 5) -> str:
+    """
+    Search GitHub repositories by keyword or query string.
+
+    Args:
+        query: Search query (e.g. 'fastmcp' or 'python web framework')
+        limit: Max results to return (default: 5)
+    """
+    url = f"https://api.github.com/search/repositories?q={query}&per_page={limit}"
+    response = requests.get(url, headers=get_headers())
+
+    if response.status_code != 200:
+        return f"Error: Received status code {response.status_code}"
+
+    items = response.json().get("items", [])
+    if not items:
+        return f"No repositories found matching '{query}'."
+
+    output = [f"Search Results for '{query}':"]
+    for repo in items:
+        output.append(
+            f"\n- {repo['full_name']} (Stars: {repo['stargazers_count']})\n"
+            f"  Description: {repo.get('description') or 'No description'}\n"
+            f"  URL: {repo['html_url']}"
+        )
+    return "\n".join(output)
+
+
+@mcp.tool()
+def summarize_repo_readme(owner: str, repo: str) -> str:
+    """
+    Fetch a repository's README and use Groq AI (Llama 3.3) to summarize it.
+
+    Args:
+        owner: GitHub repository owner (e.g. 'jlowin')
+        repo: Repository name (e.g. 'fastmcp')
+    """
+    url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/README.md"
+    res = requests.get(url)
+    if res.status_code == 404:
+        url = f"https://raw.githubusercontent.com/{owner}/{repo}/master/README.md"
+        res = requests.get(url)
+    if res.status_code != 200:
+        return f"Could not fetch README for {owner}/{repo} (Status {res.status_code})."
+
+    readme_text = res.text[:8000]
+    try:
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful software engineering assistant. "
+                        "Summarize README files into 3 sections: "
+                        "1. Overview & Purpose, 2. Key Features, 3. How to Get Started."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Summarize this README for '{owner}/{repo}':\n\n{readme_text}",
+                },
+            ],
+            temperature=0.3,
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Error calling Groq API: {str(e)}"
+
+
+@mcp.tool()
+def analyze_user_repositories(
+    username: str,
+    question: str = "Summarize all repositories and highlight key projects and tech stacks",
+) -> str:
+    """
+    Fetch a GitHub user's repositories and use Groq AI to analyze them.
+
+    Args:
+        username: GitHub username (e.g. 'torvalds')
+        question: Specific analysis question or instruction for Groq AI
+    """
+    repo_data = get_user_repositories(username, limit=20)
+    profile_data = get_user_profile(username)
+
+    if "not found" in repo_data.lower() or "error" in repo_data.lower():
+        return repo_data
+
+    prompt_content = (
+        f"GitHub profile and repositories for user '{username}':\n\n"
+        f"--- PROFILE ---\n{profile_data}\n\n"
+        f"--- REPOSITORIES ---\n{repo_data}\n\n"
+        f"--- INSTRUCTION ---\n{question}"
+    )
+    try:
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert AI code analyst. Analyze GitHub repositories and give clear, well-structured summaries.",
+                },
+                {"role": "user", "content": prompt_content},
+            ],
+            temperature=0.3,
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Error from Groq AI analysis: {str(e)}"
+
+
+@mcp.tool()
+def ask_groq_ai(prompt: str) -> str:
+    """
+    Ask Groq AI (Llama 3.3) any general question or request code analysis.
+
+    Args:
+        prompt: Question or prompt for Groq AI
+    """
+    try:
+        completion = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        return f"Error from Groq AI: {str(e)}"
+
+
+# =============================================================================
+# GOOGLE CALENDAR TOOLS
+# =============================================================================
+import google_calendar_tool
+
+
+@mcp.tool()
+def list_upcoming_calendar_events(max_results: int = 5) -> str:
+    """
+    Fetch upcoming events from the user's primary Google Calendar.
+
+    Args:
+        max_results: Max number of events to fetch (default: 5)
+    """
+    return google_calendar_tool.list_upcoming_calendar_events(max_results=max_results)
+
+
+@mcp.tool()
+def create_calendar_event(
+    summary: str, start_time: str, end_time: str, description: str = ""
+) -> str:
+    """
+    Create a new event in the user's Google Calendar.
+
+    Args:
+        summary: Event title / summary
+        start_time: ISO timestamp for start (e.g. '2026-08-02T10:00:00+05:30')
+        end_time: ISO timestamp for end (e.g. '2026-08-02T11:00:00+05:30')
+        description: Optional notes or description for the event
+    """
+    return google_calendar_tool.create_calendar_event(
+        summary=summary,
+        start_time=start_time,
+        end_time=end_time,
+        description=description,
+    )
+
+
+@mcp.tool()
+def delete_calendar_event(event_summary: str) -> str:
+    """
+    Find and delete an event from Google Calendar by title/summary keyword.
+
+    Args:
+        event_summary: Event title keyword to find and delete (e.g. 'Team Standup')
+    """
+    return google_calendar_tool.delete_calendar_event(event_summary=event_summary)
+
+
+# =============================================================================
+# WEB SEARCH & SCRAPING TOOLS
+# =============================================================================
+import web_search_tool
+
+
+@mcp.tool()
+def search_web(query: str, max_results: int = 5) -> str:
+    """
+    Search the live web using DuckDuckGo for news, docs, and articles.
+
+    Args:
+        query: Search query string (e.g. 'latest Python 3.13 features')
+        max_results: Max results to return (default: 5)
+    """
+    return web_search_tool.search_web(query=query, max_results=max_results)
+
+
+@mcp.tool()
+def scrape_url(url: str) -> str:
+    """
+    Scrape and extract readable text content from any clearnet webpage URL.
+
+    Args:
+        url: The webpage URL to scrape (must be http:// or https://)
+    """
+    return web_search_tool.scrape_url(url=url)
+
+
+# =============================================================================
+# TOR / ONION TOOLS
+# Requires Docker Tor container running: docker compose up -d
+# =============================================================================
+import onion_crawler_tool
+
+
+@mcp.tool()
+def find_onion_urls(query: str, max_results: int = 10) -> str:
+    """
+    Search for real .onion (dark web) URLs on a topic using Ahmia.fi
+    and a curated seed list of verified onion sites.
+
+    Args:
+        query: Topic to search for (e.g. 'news', 'privacy', 'search engine', 'forum')
+        max_results: Max number of .onion URLs to return (default: 10)
+    """
+    return onion_crawler_tool.find_onion_urls(query=query, max_results=max_results)
+
+
+@mcp.tool()
+def crawl_onion(url: str) -> str:
+    """
+    Crawl a .onion (dark web) URL via the Tor SOCKS5 proxy running in Docker.
+    Extracts and returns readable text from the hidden service page.
+
+    Args:
+        url: Full .onion URL (e.g. 'http://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion')
+    """
+    return onion_crawler_tool.crawl_onion(url=url)
+
+
+@mcp.tool()
+def analyze_content(content: str, analysis_type: str = "summarize") -> str:
+    """
+    Analyze any text content using Groq AI (Llama 3.3).
+    Use after scraping a webpage or crawling an onion site.
+
+    Args:
+        content: The raw text content to analyze
+        analysis_type: One of:
+            'summarize'       → concise bullet-point summary
+            'risk_assessment' → detect risks/threats (rated LOW/MEDIUM/HIGH)
+            'extract_links'   → list all URLs and .onion addresses found
+            'key_info'        → extract names, dates, facts, organizations
+    """
+    return onion_crawler_tool.analyze_content(
+        content=content, analysis_type=analysis_type
+    )
+
+
+# =============================================================================
+# RUN MCP SERVER
+# =============================================================================
+if __name__ == "__main__":
+    mcp.run()

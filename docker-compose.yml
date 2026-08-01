@@ -1,0 +1,10 @@
+services:
+  tor:
+    image: dperson/torproxy:latest
+    container_name: tor_proxy
+    ports:
+      - "9050:9050"   # SOCKS5 proxy — used by Python agent
+      - "8118:8118"   # HTTP proxy (optional, for browser use)
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Kolkata
