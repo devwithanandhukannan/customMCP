@@ -516,12 +516,93 @@ TOOLS_SCHEMAS = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_notion",
+            "description": "Search for pages and databases in the user's Notion workspace matching a query.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query or keyword (e.g. 'Project', 'Notes')"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_notion_page",
+            "description": "Create a new page in the user's Notion workspace with a title and optional body text.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title of the new Notion page"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Optional body text content for the page"
+                    },
+                    "parent_page_id": {
+                        "type": "string",
+                        "description": "Optional parent page or database ID"
+                    }
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_notion_page_content",
+            "description": "Fetch and read text content and blocks from a specific Notion page ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_id": {
+                        "type": "string",
+                        "description": "The ID of the Notion page"
+                    }
+                },
+                "required": ["page_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "append_notion_block",
+            "description": "Append text blocks or notes to an existing Notion page by ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_id": {
+                        "type": "string",
+                        "description": "The ID of the Notion page"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Text content to append to the page"
+                    }
+                },
+                "required": ["page_id", "content"]
+            }
+        }
     }
 ]
 
 # 3. Map tool names to Python implementations
 import google_calendar_tool
 import web_search_tool
+import notion_tool
 
 AVAILABLE_FUNCTIONS = {
     "get_user_profile": github_mcp.get_user_profile,
@@ -548,6 +629,10 @@ AVAILABLE_FUNCTIONS = {
     "search_web": web_search_tool.search_web,
     "scrape_url": web_search_tool.scrape_url,
     "analyze_content": web_search_tool.analyze_content,
+    "search_notion": notion_tool.search_notion,
+    "create_notion_page": notion_tool.create_notion_page,
+    "get_notion_page_content": notion_tool.get_notion_page_content,
+    "append_notion_block": notion_tool.append_notion_block,
 }
 
 
@@ -680,6 +765,12 @@ WEB & ANALYSIS TOOLS:
 - search_web(query)                   → DuckDuckGo web search
 - scrape_url(url)                     → Scrape text from any webpage URL
 - analyze_content(content, type)      → AI analysis: summarize/risk/links/key_info
+
+NOTION WORKSPACE TOOLS:
+- search_notion(query)                → Search pages & databases in Notion
+- create_notion_page(title, content)  → Create a new Notion page
+- get_notion_page_content(page_id)    → Read text content & blocks of a Notion page
+- append_notion_block(page_id, text)  → Append text notes to a Notion page
 """
 
 
@@ -859,6 +950,12 @@ HELP_TEXT = f"""
   "Search the web for <topic>"
   "Scrape and summarize <URL>"
 
+{Colors.BOLD}📝 Notion Workspace Tools:{Colors.RESET}
+  "Search Notion for <query>"
+  "Create a Notion page titled X with content Y"
+  "Read Notion page <ID>"
+  "Append note Z to Notion page <ID>"
+
 {Colors.BOLD}🤖 AI Tools:{Colors.RESET}
   "Ask AI: <any question>"
   "Analyze this content: <text>"
@@ -869,10 +966,10 @@ if __name__ == "__main__":
     agent = AutonomousAgent()
 
     print(f"{Colors.CYAN}")
-    print("  ╔══════════════════════════════════════════╗")
-    print("  ║    Custom AI Agent — MCP Powered  🚀    ║")
-    print("  ║    GitHub · Calendar · Gmail · Web       ║")
-    print("  ╚══════════════════════════════════════════╝")
+    print("  ╔═════════════════════════════════════════════════════╗")
+    print("  ║      Custom AI Agent — MCP Powered  🚀             ║")
+    print("  ║  GitHub · Calendar · Gmail · Tasks · SQL · Notion   ║")
+    print("  ╚═════════════════════════════════════════════════════╝")
     print(f"{Colors.RESET}")
     print(f"  {Colors.DIM}Type 'help' to see all tools, 'exit' to quit{Colors.RESET}\n")
 

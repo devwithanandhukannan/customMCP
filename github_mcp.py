@@ -18,9 +18,10 @@ groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 #   • Google Tasks  → list tasks, create task, complete task, get_daily_briefing
 #   • SQL Database  → store text/notes, store files/images/PDFs, search DB, list, get doc
 #   • Web           → DuckDuckGo search, URL scraper, AI content analysis
+#   • Notion        → search workspace, create page, read page, append blocks
 # ─────────────────────────────────────────────────────────────────────────────
 mcp = FastMCP(
-    "Custom AI Agent MCP Server — GitHub · Calendar · Gmail · Tasks · Briefing · SQL DB · Web"
+    "Custom AI Agent MCP Server — GitHub · Calendar · Gmail · Tasks · Briefing · SQL DB · Web · Notion"
 )
 
 
@@ -516,6 +517,61 @@ def get_daily_briefing() -> str:
     - Live morning news headlines
     """
     return tasks_tool.get_daily_briefing()
+
+
+# =============================================================================
+# NOTION TOOLS
+# =============================================================================
+import notion_tool
+
+
+@mcp.tool()
+def search_notion(query: str = "") -> str:
+    """
+    Search for pages and databases in the user's Notion workspace matching a query string.
+
+    Args:
+        query: Keyword or search query (e.g. 'Meeting Notes', 'Project Plan')
+    """
+    return notion_tool.search_notion(query=query)
+
+
+@mcp.tool()
+def create_notion_page(title: str, content: str = "", parent_page_id: str = "") -> str:
+    """
+    Create a new page in the Notion workspace with a title and optional content.
+
+    Args:
+        title: Title of the new page
+        content: Optional paragraph text content for the page
+        parent_page_id: Optional ID of a parent page or database
+    """
+    return notion_tool.create_notion_page(
+        title=title, content=content, parent_page_id=parent_page_id
+    )
+
+
+@mcp.tool()
+def get_notion_page_content(page_id: str) -> str:
+    """
+    Fetch and read the text content and blocks of a Notion page by its page ID.
+
+    Args:
+        page_id: The ID of the Notion page
+    """
+    return notion_tool.get_notion_page_content(page_id=page_id)
+
+
+@mcp.tool()
+def append_notion_block(page_id: str, content: str) -> str:
+    """
+    Append new paragraph text blocks to an existing Notion page.
+
+    Args:
+        page_id: The ID of the Notion page to update
+        content: Text content to append to the page
+    """
+    return notion_tool.append_notion_block(page_id=page_id, content=content)
 
 
 # =============================================================================

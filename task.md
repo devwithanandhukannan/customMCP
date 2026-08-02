@@ -6,5 +6,7 @@
 - [x] Add `gmail_token.json` to `.gitignore`
 - [x] Remove Onion/Tor crawler tools and Docker dependency (moved `analyze_content` to `web_search_tool.py`)
 - [x] Implement Full Database CRUD Operations (`store_text_data`, `store_file`, `search_database`, `list_stored_documents`, `get_document`, `update_document`, `delete_document`)
+- [x] Implement Notion API Integration (`search_notion`, `create_notion_page`, `get_notion_page_content`, `append_notion_block`)
+
 
 
