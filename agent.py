@@ -111,14 +111,18 @@ TOOLS_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "list_upcoming_calendar_events",
-            "description": "Fetch upcoming events from the user's Google Calendar.",
+            "description": "Fetch upcoming events from the user's Google Calendar. Pass date (e.g. '2026-08-03') to list events for a specific day.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "max_results": {
                         "type": "integer",
-                        "description": "Number of upcoming events to fetch (default: 5)",
-                        "default": 5
+                        "description": "Number of upcoming events to fetch (default: 25)",
+                        "default": 25
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Optional date string in YYYY-MM-DD format (e.g. '2026-08-03') to filter events for a specific date"
                     }
                 }
             }
@@ -157,16 +161,24 @@ TOOLS_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "delete_calendar_event",
-            "description": "Delete or remove an event from the user's Google Calendar by title/summary.",
+            "description": "Delete or remove event(s) from the user's Google Calendar by title keyword or date.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "event_summary": {
                         "type": "string",
-                        "description": "The title or summary keyword of the event to delete (e.g. 'New Event')"
+                        "description": "Title or summary keyword of the event to delete (e.g. 'Interview' or 'all')"
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Optional date string (YYYY-MM-DD format e.g. '2026-08-03') to delete all events on that day"
+                    },
+                    "delete_all": {
+                        "type": "boolean",
+                        "description": "Set to True to delete all matching events on that date or keyword (default: False)"
                     }
                 },
-                "required": ["event_summary"]
+                "required": []
             }
         }
     },
@@ -638,14 +650,12 @@ AVAILABLE_FUNCTIONS = {
 
 
 class Colors:
-    CYAN = "\033[1;36m"
-    GREEN = "\033[1;32m"
-    YELLOW = "\033[1;33m"
-    MAGENTA = "\033[1;35m"
-    BLUE = "\033[1;34m"
-    DIM = "\033[2m"
-    BOLD = "\033[1m"
-    RESET = "\033[0m"
+    USER = "\033[1;36m"     # Bold Cyan for User
+    AI = "\033[38;5;121m"    # Soft Mint Green for AI Response
+    DIM = "\033[90m"        # Muted Gray for tool traces
+    RESET = "\033[0m"       # Reset
+
+
 
 
 class AutonomousAgent:
@@ -672,7 +682,7 @@ class AutonomousAgent:
                     agent_id=agent_id,
                 )
             except Exception as e:
-                print(f"{Colors.YELLOW}[CloudGuard Warning]: Failed to init client: {e}{Colors.RESET}")
+                _print_warn(f"CloudGuard init failed: {e}")
 
     def _build_system_prompt(self):
         """Build system prompt with the current date/time injected."""
@@ -688,6 +698,7 @@ class AutonomousAgent:
 
         # Load stored user entries from SQLite database for persistent memory
         user_memory_context = ""
+        rows = []
         try:
             import sqlite3
             conn = sqlite3.connect(db_tool.DB_PATH)
@@ -707,8 +718,15 @@ class AutonomousAgent:
         except Exception:
             pass
 
+        # Extract assistant name if stored in DB
+        assistant_name_str = "an Autonomous AI Assistant"
+        for title, content, tags in rows:
+            if title.lower() == "assistant name" and content:
+                assistant_name_str = content.strip()
+                break
+
         self.system_prompt = f"""
-You are an Autonomous AI Assistant with tools for GitHub, Google Calendar, Gmail, Google Tasks, SQL Storage, and Web Search.
+You are {assistant_name_str}, an Autonomous AI Assistant with tools for GitHub, Google Calendar, Gmail, Google Tasks, SQL Storage, and Web Search.
 
 TODAY'S DATE & TIME: {current_dt}
 CURRENT ISO TIMESTAMP: {current_iso}
@@ -717,14 +735,15 @@ TOMORROW DATE (for reference): {tomorrow_iso_start} to {tomorrow_iso_end}
 ALWAYS use the correct current year ({now.year}) when creating calendar events. Never use past years.
 
 CRITICAL RULES — follow these strictly:
-1. For greetings (hi, hello, hey) or casual chat — respond conversationally. DO NOT call any tools.
-2. NEVER call a tool with placeholder values like 'null', 'example', 'test', 'N/A', or made-up usernames.
-3. ONLY call a tool when the user has given you real required information.
-4. If the user asks to "list", "show", or "what are your tools" — describe them in plain text. Do NOT call any tool.
-5. If required information is missing, ask the user for it before calling any tool.
-6. After a tool returns a result, give the user a FINAL TEXT ANSWER. Do NOT call the same tool again.
-7. Each tool should only be called ONCE per user request unless the user explicitly asks for more.
-8. RETRIEVING STORED USER INFORMATION: If the user asks about their name, identity, owner details, saved notes, or past stored information (e.g. 'what is my name?', 'who am I?', 'what did I store?'), check the STORED USER DATA section above or call search_database(query=...) / list_stored_documents() BEFORE answering. NEVER say you don't know without checking stored database entries first!
+1. YOUR IDENTITY & NAME: Your name is "{assistant_name_str}" as recorded in the STORED USER DATA section above. When asked "who are you?", "what is your name?", or "who am I?", ALWAYS use the stored records from the SQL database memory above.
+2. For greetings (hi, hello, hey) or casual chat — respond conversationally. DO NOT call any tools.
+3. NEVER call a tool with placeholder values like 'null', 'example', 'test', 'N/A', or made-up usernames.
+4. ONLY call a tool when the user has given you real required information.
+5. If the user asks to "list", "show", or "what are your tools" — describe them in plain text. Do NOT call any tool.
+6. If required information is missing, ask the user for it before calling any tool.
+7. After a tool returns a result, give the user a FINAL TEXT ANSWER. Do NOT call the same tool again.
+8. Each tool should only be called ONCE per user request unless the user explicitly asks for more.
+9. RETRIEVING STORED USER INFORMATION: If the user asks about their name, identity, owner details, saved notes, assistant name, or past stored information (e.g. 'what is my name?', 'who am I?', 'who are you?'), check the STORED USER DATA section above or call search_database(query=...) / list_stored_documents() BEFORE answering. Never introduce yourself with a different default name if a custom name exists in stored database memory!
 
 Available tools:
 
@@ -778,7 +797,7 @@ NOTION WORKSPACE TOOLS:
         """Reset conversation memory and refresh the date in system prompt."""
         self._build_system_prompt()
         self.messages = [{"role": "system", "content": self.system_prompt}]
-        print(f"{Colors.YELLOW}[Memory] Conversation memory cleared.{Colors.RESET}")
+        print("memory cleared.")
 
     def run(self, user_prompt: str, max_turns: int = 5) -> str:
         # Refresh date in system prompt on every new user message
@@ -813,26 +832,49 @@ NOTION WORKSPACE TOOLS:
                     break
                 except Exception as e:
                     err_str = str(e).lower()
-                    if "rate_limit" in err_str or "429" in err_str or "rate limit" in err_str:
-                        print(f"{Colors.YELLOW}[Warning] Model '{model_candidate}' rate limited. Trying fallback model...{Colors.RESET}")
+                    if any(k in err_str for k in ["rate_limit", "429", "tool_use_failed", "validation failed", "400", "invalid_request_error"]):
+                        print(f"{Colors.DIM}[warning] Model '{model_candidate}' call issue ({e}). Trying fallback model...{Colors.RESET}")
                         continue
                     else:
-                        print(f"[Error] Groq API Error ({model_candidate}): {str(e)}")
+                        print(f"[error] {e}")
                         return f"API Error: {str(e)}"
 
             if not response:
-                print("[Error] All Groq models rate limited. Please wait a few minutes before trying again.")
-                return "All models are currently rate limited. Please try again in a few minutes."
+                print("[error] All candidate models failed or rate-limited. Try again in a moment.")
+                return "All models are currently unavailable or rate limited. Please try again in a few minutes."
 
             response_message = response.choices[0].message
             tool_calls = response_message.tool_calls
+
+            # Synthetic conversion if model outputs plain text function tag <function=...>
+            if not tool_calls and response_message.content:
+                import re
+                match = re.search(r'<function=([a-zA-Z0-9_]+)\s*({.*?})?\s*>(?:({.*?}))?</function>', response_message.content, re.DOTALL)
+                if match:
+                    fname = match.group(1)
+                    fargs_raw = match.group(2) or match.group(3) or "{}"
+                    try:
+                        fargs = json.loads(fargs_raw)
+                    except Exception:
+                        fargs = {}
+                    class SyntheticFunction:
+                        def __init__(self, name, args):
+                            self.name = name
+                            self.arguments = json.dumps(args)
+                    class SyntheticToolCall:
+                        def __init__(self, name, args):
+                            self.id = f"call_synth_{name}"
+                            self.function = SyntheticFunction(name, args)
+                    tool_calls = [SyntheticToolCall(fname, fargs)]
 
             # Append the assistant's response/thought message to conversation memory
             self.messages.append(response_message)
 
             # If the LLM did not request any tool calls, it has reached its final answer!
             if not tool_calls:
-                print(f"\n{Colors.GREEN}{response_message.content}{Colors.RESET}")
+                print()
+                print(f"{Colors.AI}{response_message.content}{Colors.RESET}")
+                print()
                 return response_message.content
 
 
@@ -851,13 +893,16 @@ NOTION WORKSPACE TOOLS:
                         f"I already checked {function_name.replace('_', ' ')} "
                         f"and the result was: {str(last_tool_output)}"
                     )
-                    print(f"{Colors.YELLOW}[Loop Detected] Stopping repeated tool call.{Colors.RESET}")
-                    print(f"\n{Colors.GREEN}{msg}{Colors.RESET}")
+                    print(f"{Colors.DIM}[loop] stopped repeating {function_name}{Colors.RESET}")
+                    print()
+                    print(f"{Colors.AI}{msg}{Colors.RESET}")
+                    print()
                     return msg
                 last_tool_signature = current_signature
                 # ─────────────────────────────────────────────────────────
 
-                print(f"{Colors.YELLOW}[Executing Tool]: Calling [{function_name}] with args: {function_args}{Colors.RESET}")
+                args_preview = ", ".join(f"{k}={repr(v)[:30]}" for k, v in function_args.items())
+                print(f"{Colors.DIM}  > {function_name}({args_preview}){Colors.RESET}")
 
                 # 🛡️ CloudGuard Security Evaluation
                 if self.cloudguard_client:
@@ -872,7 +917,7 @@ NOTION WORKSPACE TOOLS:
                         risk_score = eval_res.get("risk_score", 0)
 
                         if decision == "DENY":
-                            print(f"{Colors.YELLOW}🛡️ [CloudGuard Security Gateway]: DENIED [{function_name}] (risk: {risk_score}/100) — Reason: {reason}{Colors.RESET}")
+                            print(f"{Colors.DIM}  [blocked] {function_name} — {reason}{Colors.RESET}")
                             last_tool_output = f"Security Policy Blocked Execution of '{function_name}': {reason}"
                             self.messages.append({
                                 "tool_call_id": tool_call.id,
@@ -882,7 +927,7 @@ NOTION WORKSPACE TOOLS:
                             })
                             continue
                         elif decision == "ESCALATE":
-                            print(f"{Colors.YELLOW}🛡️ [CloudGuard Security Gateway]: ESCALATED [{function_name}] (risk: {risk_score}/100) — Reason: {reason}{Colors.RESET}")
+                            print(f"{Colors.DIM}  [escalated] {function_name} — {reason}{Colors.RESET}")
                             last_tool_output = f"Security Escalation Required for '{function_name}': {reason}"
                             self.messages.append({
                                 "tool_call_id": tool_call.id,
@@ -891,19 +936,33 @@ NOTION WORKSPACE TOOLS:
                                 "content": str(last_tool_output)
                             })
                             continue
-                        else:
-                            print(f"{Colors.GREEN}🛡️ [CloudGuard Security Gateway]: ALLOWED [{function_name}] (risk: {risk_score}/100){Colors.RESET}")
                     except Exception as cg_err:
-                        print(f"{Colors.YELLOW}🛡️ [CloudGuard Warning]: Gateway evaluation skipped: {cg_err}{Colors.RESET}")
+                        pass  # skip silently
 
                 # Execute Python function
                 function_to_call = AVAILABLE_FUNCTIONS.get(function_name)
                 if function_to_call:
-                    last_tool_output = function_to_call(**function_args)
+                    try:
+                        last_tool_output = function_to_call(**function_args)
+                    except TypeError as te:
+                        import inspect
+                        try:
+                            sig = inspect.signature(function_to_call)
+                            valid_kwargs = {}
+                            for k, v in function_args.items():
+                                if k in sig.parameters:
+                                    valid_kwargs[k] = v
+                                elif k == "limit" and "max_results" in sig.parameters:
+                                    valid_kwargs["max_results"] = v
+                                elif k == "max_results" and "limit" in sig.parameters:
+                                    valid_kwargs["limit"] = v
+                            last_tool_output = function_to_call(**valid_kwargs)
+                        except Exception:
+                            last_tool_output = f"Error executing tool '{function_name}': {str(te)}"
                 else:
                     last_tool_output = f"Error: Tool '{function_name}' not found."
 
-                print(f"{Colors.DIM}[Tool Output Received] ({len(str(last_tool_output))} chars){Colors.RESET}\n")
+                print(f"{Colors.DIM}    done.{Colors.RESET}")  # minimal feedback
 
                 # Send tool execution result back to conversation memory
                 self.messages.append({
@@ -916,71 +975,37 @@ NOTION WORKSPACE TOOLS:
         return "Agent reached maximum execution steps without concluding."
 
 
+
 HELP_TEXT = f"""
-{Colors.CYAN}{'='*60}
-  Custom AI Agent — Available Commands & Tools
-{'='*60}{Colors.RESET}
+{Colors.DIM}Commands:  help  |  reset  |  exit
 
-{Colors.BOLD}Built-in Commands:{Colors.RESET}
-  help          → Show this help menu
-  reset         → Clear conversation memory
-  exit / quit   → Exit the agent
-
-{Colors.BOLD}🐙 GitHub Tools:{Colors.RESET}
-  "Get GitHub profile of torvalds"
-  "Show repositories of <username>"
-  "Search GitHub repos for fastmcp"
-  "Summarize README of owner/repo"
-  "Analyze all repos of <username>"
-
-{Colors.BOLD}💾 SQL Database Tools (Full CRUD):{Colors.RESET}
-  "Store note title: X, content: Y"
-  "Search database for <keyword>"
-  "List stored documents"
-  "Get document <ID>"
-  "Update document <ID> title/content/tags"
-  "Delete document <ID>"
-
-{Colors.BOLD}📅 Calendar Tools:{Colors.RESET}
-  "Show my upcoming calendar events"
-  "Create a meeting called X on <date> at <time>"
-  "Delete calendar event called X"
-
-{Colors.BOLD}🌐 Web Tools:{Colors.RESET}
-  "Search the web for <topic>"
-  "Scrape and summarize <URL>"
-
-{Colors.BOLD}📝 Notion Workspace Tools:{Colors.RESET}
-  "Search Notion for <query>"
-  "Create a Notion page titled X with content Y"
-  "Read Notion page <ID>"
-  "Append note Z to Notion page <ID>"
-
-{Colors.BOLD}🤖 AI Tools:{Colors.RESET}
-  "Ask AI: <any question>"
-  "Analyze this content: <text>"
-{Colors.CYAN}{'='*60}{Colors.RESET}
+Tools:
+  GitHub       - profile, repos, search, readme
+  Calendar     - list, create, delete events
+  Gmail        - search, summarize inbox, draft
+  Database     - store, search, list, update, delete
+  Tasks        - list, create, complete
+  Web          - search, scrape, analyze
+  Notion       - search, create, read, append
+  Briefing     - daily AI briefing{Colors.RESET}
 """
+
 
 if __name__ == "__main__":
     agent = AutonomousAgent()
 
-    print(f"{Colors.CYAN}")
-    print("  ╔═════════════════════════════════════════════════════╗")
-    print("  ║      Custom AI Agent — MCP Powered  🚀             ║")
-    print("  ║  GitHub · Calendar · Gmail · Tasks · SQL · Notion   ║")
-    print("  ╚═════════════════════════════════════════════════════╝")
-    print(f"{Colors.RESET}")
-    print(f"  {Colors.DIM}Type 'help' to see all tools, 'exit' to quit{Colors.RESET}\n")
+    print(f"{Colors.DIM}AI Agent ready. Type 'help' for commands.{Colors.RESET}")
+    print()
 
     while True:
         try:
-            prompt = input(f"{Colors.BLUE}Enter prompt > {Colors.RESET}").strip()
+            prompt = input(f"{Colors.USER}you: ").strip()
+            print(Colors.RESET, end="")
 
             if not prompt:
                 continue
             if prompt.lower() in ["exit", "quit"]:
-                print(f"{Colors.YELLOW}Goodbye!{Colors.RESET}")
+                print(f"{Colors.DIM}bye.{Colors.RESET}")
                 break
             if prompt.lower() == "reset":
                 agent.reset_memory()
@@ -992,5 +1017,6 @@ if __name__ == "__main__":
             agent.run(prompt)
 
         except KeyboardInterrupt:
-            print(f"\n{Colors.YELLOW}Interrupted. Type 'exit' to quit.{Colors.RESET}")
-            continue
+            print(f"{Colors.RESET}")
+            print(f"{Colors.DIM}interrupted. type 'exit' to quit.{Colors.RESET}")
+            print()

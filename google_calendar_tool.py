@@ -35,32 +35,44 @@ def get_calendar_service():
     service = build('calendar', 'v3', credentials=creds)
     return service, None
 
-def list_upcoming_calendar_events(max_results: int = 5) -> str:
+def list_upcoming_calendar_events(max_results: int = 25, date: str = None, **kwargs) -> str:
     """
     List upcoming events from the user's primary Google Calendar.
     
     Args:
-        max_results: Max number of events to fetch (default: 5)
+        max_results: Max number of events to fetch (default: 25)
+        date: Optional date string in YYYY-MM-DD format (e.g. '2026-08-03') to filter events for a specific day
     """
     service, err = get_calendar_service()
     if err:
         return f"Google Calendar Setup Required: {err}"
         
     try:
-        now = datetime.now(timezone.utc).isoformat()
-        events_result = service.events().list(
-            calendarId='primary',
-            timeMin=now,
-            maxResults=max_results,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
+        if date and str(date).strip():
+            date_clean = str(date).strip().split("T")[0]
+            time_min = f"{date_clean}T00:00:00+05:30"
+            time_max = f"{date_clean}T23:59:59+05:30"
+        else:
+            time_min = datetime.now(timezone.utc).isoformat()
+            time_max = None
+
+        params = {
+            'calendarId': 'primary',
+            'timeMin': time_min,
+            'maxResults': max_results,
+            'singleEvents': True,
+            'orderBy': 'startTime'
+        }
+        if time_max:
+            params['timeMax'] = time_max
+
+        events_result = service.events().list(**params).execute()
         events = events_result.get('items', [])
 
         if not events:
-            return "No upcoming calendar events found."
+            return f"No calendar events found" + (f" for {date}." if date else ".")
 
-        output = ["Upcoming Google Calendar Events:"]
+        output = [f"Google Calendar Events" + (f" for {date}:" if date else ":")]
         for event in events:
             start = event['start'].get('dateTime', event['start'].get('date'))
             summary = event.get('summary', 'No Title')
@@ -98,42 +110,77 @@ def create_calendar_event(summary: str, start_time: str, end_time: str, descript
     except Exception as e:
         return f"Error creating event on Google Calendar: {str(e)}"
 
-def delete_calendar_event(event_summary: str) -> str:
+def delete_calendar_event(event_summary: str = "", date: str = None, delete_all: bool = False, **kwargs) -> str:
     """
-    Find and delete an event from the user's primary Google Calendar by title/summary keyword.
+    Find and delete event(s) from the user's primary Google Calendar by title/summary keyword or date.
     
     Args:
-        event_summary: Summary or title keyword of the event to delete (e.g. 'New Event')
+        event_summary: Summary or title keyword of the event to delete (e.g. 'Interview' or 'all')
+        date: Optional date string in YYYY-MM-DD format to delete all events on that day
+        delete_all: If True, deletes all matching events instead of just the first match
     """
     service, err = get_calendar_service()
     if err:
         return f"Google Calendar Setup Required: {err}"
         
     try:
-        now = datetime.now(timezone.utc).isoformat()
-        events_result = service.events().list(
-            calendarId='primary',
-            timeMin=now,
-            maxResults=20,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
+        if date and str(date).strip():
+            date_clean = str(date).strip().split("T")[0]
+            time_min = f"{date_clean}T00:00:00+05:30"
+            time_max = f"{date_clean}T23:59:59+05:30"
+        else:
+            time_min = datetime.now(timezone.utc).isoformat()
+            time_max = None
+
+        params = {
+            'calendarId': 'primary',
+            'timeMin': time_min,
+            'maxResults': 100,
+            'singleEvents': True,
+            'orderBy': 'startTime'
+        }
+        if time_max:
+            params['timeMax'] = time_max
+
+        events_result = service.events().list(**params).execute()
         events = events_result.get('items', [])
 
-        target_event = None
+        deleted_count = 0
+        deleted_summaries = []
+
+        query = (event_summary or "").strip().lower()
+
         for event in events:
-            summary = event.get('summary', '')
-            if event_summary.lower() in summary.lower():
-                target_event = event
-                break
+            summary = event.get('summary', '').lower()
+            description = event.get('description', '').lower()
+            
+            is_match = False
+            if (date or delete_all) and (not query or query in ["all", "*", "everything", "all events"]):
+                is_match = True
+            elif query:
+                if query in summary or query in description:
+                    is_match = True
+                else:
+                    tokens = [t for t in query.split() if len(t) > 3]
+                    if tokens and any(t in summary or t in description for t in tokens):
+                        is_match = True
 
-        if not target_event:
-            return f"No upcoming event matching '{event_summary}' was found on your calendar."
+            if is_match:
+                event_id = event['id']
+                m_summary = event.get('summary', 'Untitled Event')
+                try:
+                    service.events().delete(calendarId='primary', eventId=event_id).execute()
+                    deleted_count += 1
+                    deleted_summaries.append(m_summary)
+                    if not delete_all and not date and query not in ["all", "*", "everything"]:
+                        break
+                except Exception:
+                    pass
 
-        event_id = target_event['id']
-        matched_summary = target_event.get('summary', 'Untitled Event')
-        service.events().delete(calendarId='primary', eventId=event_id).execute()
-        return f"Successfully deleted event '{matched_summary}' (ID: {event_id}) from your Google Calendar."
+        if deleted_count == 0:
+            return f"No upcoming event matching '{event_summary or date}' was found on your calendar."
+
+        return f"Successfully deleted {deleted_count} event(s) from Google Calendar: {', '.join(deleted_summaries)}"
     except Exception as e:
         return f"Error deleting event from Google Calendar: {str(e)}"
 

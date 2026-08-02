@@ -46,7 +46,7 @@ def get_gmail_service():
     return service, None
 
 
-def search_emails(query: str = "is:unread", max_results: int = 5) -> str:
+def search_emails(query: str = "is:unread", max_results: int = 5, limit: int = None, **kwargs) -> str:
     """
     Search messages in Gmail inbox matching a query string (e.g. 'is:unread', 'from:github', 'urgent').
 
@@ -54,6 +54,8 @@ def search_emails(query: str = "is:unread", max_results: int = 5) -> str:
         query: Gmail search query string (default: 'is:unread')
         max_results: Max number of messages to fetch (default: 5)
     """
+    if limit is not None:
+        max_results = limit
     service, err = get_gmail_service()
     if err:
         return f"Gmail Setup Required: {err}"

@@ -9,7 +9,7 @@ load_dotenv()
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
-def search_web(query: str, max_results: int = 5) -> str:
+def search_web(query: str, max_results: int = 5, limit: int = None, **kwargs) -> str:
     """
     Search the live web using DuckDuckGo to find latest news, articles, code docs, and information.
     
@@ -17,6 +17,8 @@ def search_web(query: str, max_results: int = 5) -> str:
         query: Search query (e.g. 'latest AI news 2026' or 'fastmcp documentation')
         max_results: Maximum search results to return (default: 5)
     """
+    if limit is not None:
+        max_results = limit
     try:
         results = list(DDGS().text(query, max_results=max_results))
         if not results:
