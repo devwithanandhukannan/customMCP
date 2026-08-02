@@ -11,15 +11,19 @@ load_dotenv()
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Unified MCP Server — All 12 Tools in One Place
+# Unified MCP Server — All Tools in One Place
 #   • GitHub        → profile, repos, search, README summary, AI repo analysis
 #   • Google Cal    → list, create, delete events
+#   • Gmail         → search emails, AI unread inbox summary, create email drafts
+#   • Google Tasks  → list tasks, create task, complete task, get_daily_briefing
+#   • SQL Database  → store text/notes, store files/images/PDFs, search DB, list, get doc
 #   • Web           → DuckDuckGo search, URL scraper
 #   • Tor / Onion   → find .onion URLs, crawl onion sites, AI content analysis
 # ─────────────────────────────────────────────────────────────────────────────
 mcp = FastMCP(
-    "Custom AI Agent MCP Server — GitHub · Calendar · Web · Onion"
+    "Custom AI Agent MCP Server — GitHub · Calendar · Gmail · Tasks · Briefing · SQL DB · Web · Onion"
 )
+
 
 
 def get_headers():
@@ -353,8 +357,175 @@ def analyze_content(content: str, analysis_type: str = "summarize") -> str:
     )
 
 
+
+# =============================================================================
+# GMAIL TOOLS
+# =============================================================================
+import gmail_tool
+
+
+@mcp.tool()
+def search_emails(query: str = "is:unread", max_results: int = 5) -> str:
+    """
+    Search messages in Gmail inbox matching a query string (e.g. 'is:unread', 'from:github').
+
+    Args:
+        query: Gmail search query string (default: 'is:unread')
+        max_results: Max number of messages to fetch (default: 5)
+    """
+    return gmail_tool.search_emails(query=query, max_results=max_results)
+
+
+@mcp.tool()
+def summarize_unread_inbox(max_results: int = 5) -> str:
+    """
+    Fetch unread emails and use Groq AI (Llama 3.3) to generate an executive summary.
+
+    Args:
+        max_results: Max number of unread emails to analyze (default: 5)
+    """
+    return gmail_tool.summarize_unread_inbox(max_results=max_results)
+
+
+@mcp.tool()
+def create_email_draft(to: str, subject: str, body: str) -> str:
+    """
+    Create a new draft email in Gmail.
+
+    Args:
+        to: Recipient email address
+        subject: Email subject line
+        body: Text content of the email
+    """
+    return gmail_tool.create_email_draft(to=to, subject=subject, body=body)
+
+
+
+# =============================================================================
+# SQL DATABASE STORAGE TOOLS
+# =============================================================================
+import db_tool
+
+
+@mcp.tool()
+def store_text_data(title: str, content: str, tags: str = "") -> str:
+    """
+    Store text notes, code snippets, or structured information in the SQL database.
+
+    Args:
+        title: Short title or header for the text entry
+        content: The text body or content to store
+        tags: Optional comma-separated tags (e.g. 'notes, meeting, python')
+    """
+    return db_tool.store_text_data(title=title, content=content, tags=tags)
+
+
+@mcp.tool()
+def store_file(file_path: str, title: str = "", tags: str = "") -> str:
+    """
+    Read any local file (Image, PDF, Document, Code, Data) and store it in the SQL database.
+
+    Args:
+        file_path: Path to the local file (e.g. '/path/to/image.png' or 'doc.pdf')
+        title: Optional title (defaults to filename)
+        tags: Optional comma-separated tags (e.g. 'pdf, invoice, research')
+    """
+    return db_tool.store_file(file_path=file_path, title=title, tags=tags)
+
+
+@mcp.tool()
+def search_database(query: str, file_type: str = "all") -> str:
+    """
+    Search stored documents, images, PDFs, and notes in the SQL database by title, content, or tags.
+
+    Args:
+        query: Search term or keyword
+        file_type: Filter by type ('all', 'text', 'pdf', 'image', 'data')
+    """
+    return db_tool.search_database(query=query, file_type=file_type)
+
+
+@mcp.tool()
+def list_stored_documents(limit: int = 10) -> str:
+    """
+    List stored documents, images, PDFs, and text notes in the SQL database.
+
+    Args:
+        limit: Max number of items to list (default: 10)
+    """
+    return db_tool.list_stored_documents(limit=limit)
+
+
+@mcp.tool()
+def get_document(doc_id: int) -> str:
+    """
+    Fetch full text content and metadata for a document in the SQL database by ID.
+
+    Args:
+        doc_id: Integer ID of the document to retrieve
+    """
+    return db_tool.get_document(doc_id=doc_id)
+
+
+
+# =============================================================================
+# GOOGLE TASKS & DAILY AI BRIEFING TOOLS
+# =============================================================================
+import tasks_tool
+
+
+@mcp.tool()
+def list_google_tasks(show_completed: bool = False) -> str:
+    """
+    List tasks/to-dos from the user's primary Google Tasks list.
+
+    Args:
+        show_completed: Whether to include completed tasks (default: False)
+    """
+    return tasks_tool.list_google_tasks(show_completed=show_completed)
+
+
+@mcp.tool()
+def create_google_task(title: str, notes: str = "", due_date: str = "") -> str:
+    """
+    Create a new task item on the user's primary Google Tasks list.
+
+    Args:
+        title: Task title or description
+        notes: Optional additional notes
+        due_date: Optional due date (YYYY-MM-DD format)
+    """
+    return tasks_tool.create_google_task(title=title, notes=notes, due_date=due_date)
+
+
+@mcp.tool()
+def complete_google_task(task_id: str) -> str:
+    """
+    Mark a task as completed on the user's primary Google Tasks list.
+
+    Args:
+        task_id: The ID of the task to complete
+    """
+    return tasks_tool.complete_google_task(task_id=task_id)
+
+
+@mcp.tool()
+def get_daily_briefing() -> str:
+    """
+    Synthesize an executive Morning Daily AI Briefing by aggregating:
+    - Upcoming Google Calendar events
+    - Unread Gmail inbox summaries
+    - Pending Google Tasks / to-dos
+    - Live morning news headlines
+    """
+    return tasks_tool.get_daily_briefing()
+
+
 # =============================================================================
 # RUN MCP SERVER
 # =============================================================================
 if __name__ == "__main__":
     mcp.run()
+
+
+

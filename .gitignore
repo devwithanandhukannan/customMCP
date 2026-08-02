@@ -10,6 +10,10 @@ venv/
 .env
 credentials.json
 token.json
+gmail_token.json
+tasks_token.json
+*.db
+agent_storage.db
 *.json.bak
 
 # OS

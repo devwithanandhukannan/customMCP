@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 from groq import Groq
 import github_mcp
 import onion_crawler_tool
+import gmail_tool
+import db_tool
+import tasks_tool
 
 # 1. Load environment variables
 load_dotenv()
@@ -258,6 +261,245 @@ TOOLS_SCHEMAS = [
                 "required": ["query"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_emails",
+            "description": "Search messages in Gmail inbox matching a specific query string (e.g. 'from:github', 'subject:invoice', 'urgent').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Gmail search query string (e.g. 'is:unread', 'from:sender@example.com')"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max number of messages to fetch (default: 5)"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "summarize_unread_inbox",
+            "description": "Fetch unread emails from Gmail and generate an AI-powered executive summary using Groq AI. Use this when the user asks to check today's new mail, check unread emails, or summarize inbox.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max number of unread emails to summarize (default: 5)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_email_draft",
+            "description": "Create a new email draft in Gmail.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {
+                        "type": "string",
+                        "description": "Recipient email address"
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Subject line of the email"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Text body of the draft email"
+                    }
+                },
+                "required": ["to", "subject", "body"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "store_text_data",
+            "description": "Store text notes, code snippets, or structured data in the SQL database.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short title or header for the text entry"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The text body or content to store"
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": "Optional comma-separated tags (e.g. 'notes, meeting, python')"
+                    }
+                },
+                "required": ["title", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "store_file",
+            "description": "Read any local file (Image, PDF, Document, Code, Data) and store it in the SQL database.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the local file (e.g. 'doc.pdf', '/path/to/image.png')"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional custom title (defaults to filename if omitted)"
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": "Optional comma-separated tags (e.g. 'pdf, research, invoice')"
+                    }
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_database",
+            "description": "Search stored documents, images, PDFs, and text notes in the SQL database by keyword.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query or keyword"
+                    },
+                    "file_type": {
+                        "type": "string",
+                        "description": "Filter by file type: 'all' | 'text' | 'pdf' | 'image' | 'data'"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_stored_documents",
+            "description": "List stored documents, images, PDFs, and text notes in the SQL database.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max items to list (default: 10)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_document",
+            "description": "Fetch full content and metadata for a document in the SQL database by its integer ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "integer",
+                        "description": "The integer ID of the document to retrieve"
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_google_tasks",
+            "description": "List tasks/to-dos from the user's primary Google Tasks list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "show_completed": {
+                        "type": "boolean",
+                        "description": "Whether to include completed tasks (default: False)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_google_task",
+            "description": "Create a new task item on the user's primary Google Tasks list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Task title or description"
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Optional additional notes"
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "description": "Optional due date (YYYY-MM-DD format)"
+                    }
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "complete_google_task",
+            "description": "Mark a task as completed on the user's primary Google Tasks list.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The ID of the task to mark as completed"
+                    }
+                },
+                "required": ["task_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_daily_briefing",
+            "description": "Synthesize a complete executive Daily Morning Briefing combining Calendar events, unread Gmail summary, pending Google Tasks, and top news headlines.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
     }
 ]
 
@@ -273,6 +515,18 @@ AVAILABLE_FUNCTIONS = {
     "list_upcoming_calendar_events": google_calendar_tool.list_upcoming_calendar_events,
     "create_calendar_event": google_calendar_tool.create_calendar_event,
     "delete_calendar_event": google_calendar_tool.delete_calendar_event,
+    "search_emails": gmail_tool.search_emails,
+    "summarize_unread_inbox": gmail_tool.summarize_unread_inbox,
+    "create_email_draft": gmail_tool.create_email_draft,
+    "store_text_data": db_tool.store_text_data,
+    "store_file": db_tool.store_file,
+    "search_database": db_tool.search_database,
+    "list_stored_documents": db_tool.list_stored_documents,
+    "get_document": db_tool.get_document,
+    "list_google_tasks": tasks_tool.list_google_tasks,
+    "create_google_task": tasks_tool.create_google_task,
+    "complete_google_task": tasks_tool.complete_google_task,
+    "get_daily_briefing": tasks_tool.get_daily_briefing,
     "search_web": web_search_tool.search_web,
     "scrape_url": web_search_tool.scrape_url,
     "crawl_onion": onion_crawler_tool.crawl_onion,
@@ -348,6 +602,24 @@ CALENDAR TOOLS:
 - list_upcoming_calendar_events()     → Show upcoming Google Calendar events
 - create_calendar_event(...)          → Create a new calendar event
 - delete_calendar_event(summary)      → Delete a calendar event by title
+
+GMAIL TOOLS:
+- search_emails(query)                → Search emails in Gmail
+- summarize_unread_inbox()            → Executive AI summary of unread emails
+- create_email_draft(to, sub, body)   → Create an email draft in Gmail
+
+SQL DATABASE STORAGE TOOLS:
+- store_text_data(title, content)     → Store text notes or code snippets in SQL
+- store_file(file_path, title)        → Store local images, PDFs, or files in SQL
+- search_database(query)              → Search stored items in SQL by keyword
+- list_stored_documents()             → List stored documents in SQL
+- get_document(doc_id)                → Retrieve full content of a stored item by ID
+
+GOOGLE TASKS & DAILY BRIEFING TOOLS:
+- list_google_tasks()                 → List to-dos/tasks from Google Tasks
+- create_google_task(title, notes)    → Create a new to-do task item
+- complete_google_task(task_id)       → Mark a Google Task as completed
+- get_daily_briefing()                → Executive Daily Morning AI Briefing (Calendar + Gmail + Tasks + News)
 
 WEB TOOLS:
 - search_web(query)                   → DuckDuckGo web search
