@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from dotenv import load_dotenv
 from groq import Groq
 import github_mcp
@@ -7,6 +8,14 @@ import onion_crawler_tool
 import gmail_tool
 import db_tool
 import tasks_tool
+
+# CloudGuard Security Gateway SDK Integration
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "cloudguard", "sdk", "python"))
+try:
+    from cloudguard.client import CloudGuardClient, CloudGuardDeniedError, CloudGuardEscalatedError
+    CLOUDGUARD_AVAILABLE = True
+except ImportError:
+    CLOUDGUARD_AVAILABLE = False
 
 # 1. Load environment variables
 load_dotenv()
@@ -557,6 +566,21 @@ class AutonomousAgent:
         self.model = model
         self._build_system_prompt()
         self.messages = [{"role": "system", "content": self.system_prompt}]
+        
+        # CloudGuard Client Setup
+        self.cloudguard_client = None
+        if CLOUDGUARD_AVAILABLE:
+            gateway_url = os.getenv("CLOUDGUARD_URL", "http://localhost:8000")
+            api_key = os.getenv("CLOUDGUARD_API_KEY", "cg_live_custommcp_key")
+            agent_id = os.getenv("CLOUDGUARD_AGENT_ID", "00000000-0000-0000-0000-000000000002")
+            try:
+                self.cloudguard_client = CloudGuardClient(
+                    gateway_url=gateway_url,
+                    api_key=api_key,
+                    agent_id=agent_id,
+                )
+            except Exception as e:
+                print(f"{Colors.YELLOW}[CloudGuard Warning]: Failed to init client: {e}{Colors.RESET}")
 
     def _build_system_prompt(self):
         """Build system prompt with the current date/time injected."""
@@ -716,6 +740,43 @@ ONION / TOR TOOLS (requires: docker compose up -d):
                 # ─────────────────────────────────────────────────────────
 
                 print(f"{Colors.YELLOW}[Executing Tool]: Calling [{function_name}] with args: {function_args}{Colors.RESET}")
+
+                # 🛡️ CloudGuard Security Evaluation
+                if self.cloudguard_client:
+                    try:
+                        eval_res = self.cloudguard_client.execute(
+                            tool_name=function_name,
+                            parameters=function_args,
+                            raise_on_deny=False,
+                        )
+                        decision = eval_res.get("decision", "ALLOW")
+                        reason = eval_res.get("reason", "Allowed by policy")
+                        risk_score = eval_res.get("risk_score", 0)
+
+                        if decision == "DENY":
+                            print(f"{Colors.YELLOW}🛡️ [CloudGuard Security Gateway]: DENIED [{function_name}] (risk: {risk_score}/100) — Reason: {reason}{Colors.RESET}")
+                            last_tool_output = f"Security Policy Blocked Execution of '{function_name}': {reason}"
+                            self.messages.append({
+                                "tool_call_id": tool_call.id,
+                                "role": "tool",
+                                "name": function_name,
+                                "content": str(last_tool_output)
+                            })
+                            continue
+                        elif decision == "ESCALATE":
+                            print(f"{Colors.YELLOW}🛡️ [CloudGuard Security Gateway]: ESCALATED [{function_name}] (risk: {risk_score}/100) — Reason: {reason}{Colors.RESET}")
+                            last_tool_output = f"Security Escalation Required for '{function_name}': {reason}"
+                            self.messages.append({
+                                "tool_call_id": tool_call.id,
+                                "role": "tool",
+                                "name": function_name,
+                                "content": str(last_tool_output)
+                            })
+                            continue
+                        else:
+                            print(f"{Colors.GREEN}🛡️ [CloudGuard Security Gateway]: ALLOWED [{function_name}] (risk: {risk_score}/100){Colors.RESET}")
+                    except Exception as cg_err:
+                        print(f"{Colors.YELLOW}🛡️ [CloudGuard Warning]: Gateway evaluation skipped: {cg_err}{Colors.RESET}")
 
                 # Execute Python function
                 function_to_call = AVAILABLE_FUNCTIONS.get(function_name)
