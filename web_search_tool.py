@@ -67,7 +67,81 @@ def scrape_url(url: str) -> str:
 
         return f"Extracted Text Content from [{url}]({url}):\n\n{truncated_text}"
 
+
     except Exception as e:
         return f"Error scraping URL '{url}': {str(e)}"
+
+
+def analyze_content(content: str, analysis_type: str = "summarize") -> str:
+    """
+    Analyze any text content using Groq AI (Llama 3.3).
+    Useful after scraping a webpage or any text.
+
+    Args:
+        content:       The raw text to analyze.
+        analysis_type: One of:
+                         - 'summarize'        → clear, concise summary
+                         - 'risk_assessment'  → detect risks, threats, suspicious content
+                         - 'extract_links'    → list all URLs, email addresses, and web references found
+                         - 'key_info'         → extract names, dates, facts, entities
+
+    Returns:
+        AI-generated analysis as a formatted string.
+    """
+    analysis_prompts = {
+        "summarize": (
+            "Summarize the following content clearly and concisely in bullet points. "
+            "Focus on the main topics and purpose of the content."
+        ),
+        "risk_assessment": (
+            "Carefully analyze this content for potential risks, threats, suspicious activity, "
+            "or dangerous information. Be objective and factual. "
+            "Rate overall risk as LOW / MEDIUM / HIGH and explain your reasoning."
+        ),
+        "extract_links": (
+            "Extract ALL URLs, email addresses, and web references "
+            "mentioned in this content. List each one on a separate line. "
+            "If none are found, say so clearly."
+        ),
+        "key_info": (
+            "Extract the most important facts from this content: "
+            "names, organizations, dates, locations, numbers, and any key claims. "
+            "Present them as a structured list."
+        ),
+    }
+
+    prompt_prefix = analysis_prompts.get(analysis_type, analysis_prompts["summarize"])
+
+    if not content or not content.strip():
+        return "Error: No content provided for analysis."
+
+    content_truncated = content[:6000]
+
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert content analyst. You are thorough, accurate, "
+                        "and objective. Format your responses clearly."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"{prompt_prefix}\n\n---\n\n{content_truncated}",
+                },
+            ],
+            temperature=0.3,
+            max_tokens=1024,
+        )
+
+        result = response.choices[0].message.content
+        return f"[AI Analysis — {analysis_type.upper()}]\n\n{result}"
+
+    except Exception as e:
+        return f"Error analyzing content: {str(e)}"
+
 
 

@@ -1,0 +1,9 @@
+fastmcp
+groq
+python-dotenv
+requests
+beautifulsoup4
+ddgs
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib

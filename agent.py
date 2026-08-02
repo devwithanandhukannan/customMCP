@@ -4,7 +4,7 @@ import sys
 from dotenv import load_dotenv
 from groq import Groq
 import github_mcp
-import onion_crawler_tool
+import web_search_tool
 import gmail_tool
 import db_tool
 import tasks_tool
@@ -212,25 +212,8 @@ TOOLS_SCHEMAS = [
     {
         "type": "function",
         "function": {
-            "name": "crawl_onion",
-            "description": "Crawl and extract readable text content from a .onion (dark web) URL via the Tor proxy running in Docker. Use this for .onion addresses only.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "Full .onion URL (e.g. 'http://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion')"
-                    }
-                },
-                "required": ["url"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "analyze_content",
-            "description": "Analyze any text content using AI. Use after scraping a webpage or crawling an onion site to summarize, assess risks, extract links, or pull key information.",
+            "description": "Analyze any text content using AI. Use after scraping a webpage or from raw text to summarize, assess risks, extract links, or pull key information.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -246,28 +229,6 @@ TOOLS_SCHEMAS = [
                     }
                 },
                 "required": ["content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "find_onion_urls",
-            "description": "Search for .onion (dark web) URLs related to a topic using Ahmia.fi and DuckDuckGo. Use this when the user wants to discover or find onion sites on a specific topic.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Topic to search for (e.g. 'privacy tools', 'news sites', 'search engines')"
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Maximum number of .onion URLs to return (default: 10)",
-                        "default": 10
-                    }
-                },
-                "required": ["query"]
             }
         }
     },
@@ -442,6 +403,52 @@ TOOLS_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "update_document",
+            "description": "Update an existing document's title, text content, or tags in the SQL database by its integer ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "integer",
+                        "description": "The integer ID of the document to update"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New title for the document (optional)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "New text content for the document (optional)"
+                    },
+                    "tags": {
+                        "type": "string",
+                        "description": "New comma-separated tags for the document (optional)"
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_document",
+            "description": "Delete a document from the SQL database by its integer ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "doc_id": {
+                        "type": "integer",
+                        "description": "The integer ID of the document to delete"
+                    }
+                },
+                "required": ["doc_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_google_tasks",
             "description": "List tasks/to-dos from the user's primary Google Tasks list.",
             "parameters": {
@@ -532,15 +539,15 @@ AVAILABLE_FUNCTIONS = {
     "search_database": db_tool.search_database,
     "list_stored_documents": db_tool.list_stored_documents,
     "get_document": db_tool.get_document,
+    "update_document": db_tool.update_document,
+    "delete_document": db_tool.delete_document,
     "list_google_tasks": tasks_tool.list_google_tasks,
     "create_google_task": tasks_tool.create_google_task,
     "complete_google_task": tasks_tool.complete_google_task,
     "get_daily_briefing": tasks_tool.get_daily_briefing,
     "search_web": web_search_tool.search_web,
     "scrape_url": web_search_tool.scrape_url,
-    "crawl_onion": onion_crawler_tool.crawl_onion,
-    "analyze_content": onion_crawler_tool.analyze_content,
-    "find_onion_urls": onion_crawler_tool.find_onion_urls,
+    "analyze_content": web_search_tool.analyze_content,
 }
 
 
@@ -594,13 +601,34 @@ class AutonomousAgent:
         tomorrow_iso_start = tomorrow.strftime("%Y-%m-%dT09:00:00+05:30")
         tomorrow_iso_end   = tomorrow.strftime("%Y-%m-%dT10:00:00+05:30")
 
+        # Load stored user entries from SQLite database for persistent memory
+        user_memory_context = ""
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_tool.DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT title, content_text, tags FROM documents ORDER BY id DESC LIMIT 15"
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            if rows:
+                memory_entries = []
+                for title, content, tags in rows:
+                    content_str = (content or "").replace('\n', ' ')[:150]
+                    tag_str = f" [tags: {tags}]" if tags else ""
+                    memory_entries.append(f"- [{title}]{tag_str}: {content_str}")
+                user_memory_context = "\nSTORED USER DATA & PERSISTENT MEMORY (from SQL Database):\n" + "\n".join(memory_entries) + "\n"
+        except Exception:
+            pass
+
         self.system_prompt = f"""
-You are an Autonomous AI Assistant with tools for GitHub, Google Calendar, Web Search, and Tor/Onion crawling.
+You are an Autonomous AI Assistant with tools for GitHub, Google Calendar, Gmail, Google Tasks, SQL Storage, and Web Search.
 
 TODAY'S DATE & TIME: {current_dt}
 CURRENT ISO TIMESTAMP: {current_iso}
 TOMORROW DATE (for reference): {tomorrow_iso_start} to {tomorrow_iso_end}
-
+{user_memory_context}
 ALWAYS use the correct current year ({now.year}) when creating calendar events. Never use past years.
 
 CRITICAL RULES — follow these strictly:
@@ -611,6 +639,7 @@ CRITICAL RULES — follow these strictly:
 5. If required information is missing, ask the user for it before calling any tool.
 6. After a tool returns a result, give the user a FINAL TEXT ANSWER. Do NOT call the same tool again.
 7. Each tool should only be called ONCE per user request unless the user explicitly asks for more.
+8. RETRIEVING STORED USER INFORMATION: If the user asks about their name, identity, owner details, saved notes, or past stored information (e.g. 'what is my name?', 'who am I?', 'what did I store?'), check the STORED USER DATA section above or call search_database(query=...) / list_stored_documents() BEFORE answering. NEVER say you don't know without checking stored database entries first!
 
 Available tools:
 
@@ -638,6 +667,8 @@ SQL DATABASE STORAGE TOOLS:
 - search_database(query)              → Search stored items in SQL by keyword
 - list_stored_documents()             → List stored documents in SQL
 - get_document(doc_id)                → Retrieve full content of a stored item by ID
+- update_document(doc_id, ...)        → Update document title, content, or tags by ID
+- delete_document(doc_id)             → Delete a document from SQL database by ID
 
 GOOGLE TASKS & DAILY BRIEFING TOOLS:
 - list_google_tasks()                 → List to-dos/tasks from Google Tasks
@@ -645,13 +676,9 @@ GOOGLE TASKS & DAILY BRIEFING TOOLS:
 - complete_google_task(task_id)       → Mark a Google Task as completed
 - get_daily_briefing()                → Executive Daily Morning AI Briefing (Calendar + Gmail + Tasks + News)
 
-WEB TOOLS:
+WEB & ANALYSIS TOOLS:
 - search_web(query)                   → DuckDuckGo web search
-- scrape_url(url)                     → Scrape text from any clearnet URL
-
-ONION / TOR TOOLS (requires: docker compose up -d):
-- find_onion_urls(query)              → Find .onion URLs by topic
-- crawl_onion(url)                    → Crawl a .onion site via Tor
+- scrape_url(url)                     → Scrape text from any webpage URL
 - analyze_content(content, type)      → AI analysis: summarize/risk/links/key_info
 """
 
@@ -815,6 +842,14 @@ HELP_TEXT = f"""
   "Summarize README of owner/repo"
   "Analyze all repos of <username>"
 
+{Colors.BOLD}💾 SQL Database Tools (Full CRUD):{Colors.RESET}
+  "Store note title: X, content: Y"
+  "Search database for <keyword>"
+  "List stored documents"
+  "Get document <ID>"
+  "Update document <ID> title/content/tags"
+  "Delete document <ID>"
+
 {Colors.BOLD}📅 Calendar Tools:{Colors.RESET}
   "Show my upcoming calendar events"
   "Create a meeting called X on <date> at <time>"
@@ -823,13 +858,6 @@ HELP_TEXT = f"""
 {Colors.BOLD}🌐 Web Tools:{Colors.RESET}
   "Search the web for <topic>"
   "Scrape and summarize <URL>"
-
-{Colors.BOLD}🧅 Onion / Tor Tools:{Colors.RESET}  {Colors.DIM}(requires: docker compose up -d){Colors.RESET}
-  "Find onion sites about news"
-  "Find onion URLs about privacy"
-  "Crawl <.onion URL> and summarize it"
-  "Crawl <.onion URL> and do a risk assessment"
-  "Find onion sites and crawl the first result"
 
 {Colors.BOLD}🤖 AI Tools:{Colors.RESET}
   "Ask AI: <any question>"
@@ -843,7 +871,7 @@ if __name__ == "__main__":
     print(f"{Colors.CYAN}")
     print("  ╔══════════════════════════════════════════╗")
     print("  ║    Custom AI Agent — MCP Powered  🚀    ║")
-    print("  ║  GitHub · Calendar · Web · Onion Tools  ║")
+    print("  ║    GitHub · Calendar · Gmail · Web       ║")
     print("  ╚══════════════════════════════════════════╝")
     print(f"{Colors.RESET}")
     print(f"  {Colors.DIM}Type 'help' to see all tools, 'exit' to quit{Colors.RESET}\n")

@@ -65,10 +65,10 @@ def run_tests():
             "expected_decisions": ["DENY"],
         },
         {
-            "name": "6. 🚫 Dark Web Illicit Query: find_onion_urls searching for ransomware",
-            "tool": "find_onion_urls",
-            "params": {"query": "ransomware database_dump leaks"},
-            "expected_decisions": ["DENY"],
+            "name": "6. ⚠️ AI Risk Analysis: analyze_content suspicious content",
+            "tool": "analyze_content",
+            "params": {"content": "ransomware database_dump leaks", "analysis_type": "risk_assessment"},
+            "expected_decisions": ["ALLOW", "DENY", "ESCALATE"],
         },
         {
             "name": "7. ⚠️ Destructive Action: delete_calendar_event",

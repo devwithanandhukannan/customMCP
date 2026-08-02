@@ -261,3 +261,84 @@ def get_document(doc_id: int) -> str:
         )
     except Exception as e:
         return f"Error retrieving document ID {doc_id}: {str(e)}"
+
+
+def update_document(doc_id: int, title: str = None, content: str = None, tags: str = None) -> str:
+    """
+    Update an existing document's title, text content, or tags in the SQL database.
+
+    Args:
+        doc_id: Integer ID of the document to update
+        title: New title (optional, leave None/empty to keep current)
+        content: New text content (optional, leave None/empty to keep current)
+        tags: New comma-separated tags (optional, leave None/empty to keep current)
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        # Verify document exists
+        cursor.execute("SELECT id, title, content_text, tags FROM documents WHERE id = ?", (doc_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return f"Error: Document with ID {doc_id} not found in database."
+
+        updates = []
+        params = []
+
+        if title is not None and title.strip():
+            updates.append("title = ?")
+            params.append(title.strip())
+
+        if content is not None:
+            updates.append("content_text = ?")
+            params.append(content)
+            updates.append("file_size = ?")
+            params.append(len(content.encode('utf-8')))
+
+        if tags is not None:
+            updates.append("tags = ?")
+            params.append(tags.strip())
+
+        if not updates:
+            conn.close()
+            return f"No fields provided to update for document ID {doc_id}."
+
+        params.append(doc_id)
+        sql = f"UPDATE documents SET {', '.join(updates)} WHERE id = ?"
+        cursor.execute(sql, params)
+        conn.commit()
+        conn.close()
+
+        return f"Successfully updated document ID {doc_id} in SQL database!"
+    except Exception as e:
+        return f"Error updating document ID {doc_id}: {str(e)}"
+
+
+def delete_document(doc_id: int) -> str:
+    """
+    Delete a document from the SQL database by its ID.
+
+    Args:
+        doc_id: Integer ID of the document to delete
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT id, title FROM documents WHERE id = ?", (doc_id,))
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return f"Error: Document with ID {doc_id} not found in database."
+
+        doc_title = row[1]
+        cursor.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+        conn.commit()
+        conn.close()
+
+        return f"Successfully deleted document ID {doc_id} ('{doc_title}') from SQL database!"
+    except Exception as e:
+        return f"Error deleting document ID {doc_id}: {str(e)}"
+

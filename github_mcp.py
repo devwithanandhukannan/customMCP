@@ -17,11 +17,10 @@ groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 #   • Gmail         → search emails, AI unread inbox summary, create email drafts
 #   • Google Tasks  → list tasks, create task, complete task, get_daily_briefing
 #   • SQL Database  → store text/notes, store files/images/PDFs, search DB, list, get doc
-#   • Web           → DuckDuckGo search, URL scraper
-#   • Tor / Onion   → find .onion URLs, crawl onion sites, AI content analysis
+#   • Web           → DuckDuckGo search, URL scraper, AI content analysis
 # ─────────────────────────────────────────────────────────────────────────────
 mcp = FastMCP(
-    "Custom AI Agent MCP Server — GitHub · Calendar · Gmail · Tasks · Briefing · SQL DB · Web · Onion"
+    "Custom AI Agent MCP Server — GitHub · Calendar · Gmail · Tasks · Briefing · SQL DB · Web"
 )
 
 
@@ -306,53 +305,21 @@ def scrape_url(url: str) -> str:
     return web_search_tool.scrape_url(url=url)
 
 
-# =============================================================================
-# TOR / ONION TOOLS
-# Requires Docker Tor container running: docker compose up -d
-# =============================================================================
-import onion_crawler_tool
-
-
-@mcp.tool()
-def find_onion_urls(query: str, max_results: int = 10) -> str:
-    """
-    Search for real .onion (dark web) URLs on a topic using Ahmia.fi
-    and a curated seed list of verified onion sites.
-
-    Args:
-        query: Topic to search for (e.g. 'news', 'privacy', 'search engine', 'forum')
-        max_results: Max number of .onion URLs to return (default: 10)
-    """
-    return onion_crawler_tool.find_onion_urls(query=query, max_results=max_results)
-
-
-@mcp.tool()
-def crawl_onion(url: str) -> str:
-    """
-    Crawl a .onion (dark web) URL via the Tor SOCKS5 proxy running in Docker.
-    Extracts and returns readable text from the hidden service page.
-
-    Args:
-        url: Full .onion URL (e.g. 'http://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion')
-    """
-    return onion_crawler_tool.crawl_onion(url=url)
-
-
 @mcp.tool()
 def analyze_content(content: str, analysis_type: str = "summarize") -> str:
     """
     Analyze any text content using Groq AI (Llama 3.3).
-    Use after scraping a webpage or crawling an onion site.
+    Use after scraping a webpage or from raw text.
 
     Args:
         content: The raw text content to analyze
         analysis_type: One of:
             'summarize'       → concise bullet-point summary
             'risk_assessment' → detect risks/threats (rated LOW/MEDIUM/HIGH)
-            'extract_links'   → list all URLs and .onion addresses found
+            'extract_links'   → list all URLs, emails, and web references found
             'key_info'        → extract names, dates, facts, organizations
     """
-    return onion_crawler_tool.analyze_content(
+    return web_search_tool.analyze_content(
         content=content, analysis_type=analysis_type
     )
 
@@ -465,6 +432,36 @@ def get_document(doc_id: int) -> str:
         doc_id: Integer ID of the document to retrieve
     """
     return db_tool.get_document(doc_id=doc_id)
+
+
+@mcp.tool()
+def update_document(
+    doc_id: int, title: str = None, content: str = None, tags: str = None
+) -> str:
+    """
+    Update an existing document's title, content, or tags in the SQL database by ID.
+
+    Args:
+        doc_id: Integer ID of the document to update
+        title: Optional new title for the document
+        content: Optional new text content for the document
+        tags: Optional new comma-separated tags
+    """
+    return db_tool.update_document(
+        doc_id=doc_id, title=title, content=content, tags=tags
+    )
+
+
+@mcp.tool()
+def delete_document(doc_id: int) -> str:
+    """
+    Delete a document from the SQL database by its ID.
+
+    Args:
+        doc_id: Integer ID of the document to delete
+    """
+    return db_tool.delete_document(doc_id=doc_id)
+
 
 
 
